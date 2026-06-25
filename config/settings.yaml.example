@@ -94,6 +94,20 @@ telegram:
   # api_hash: your_api_hash_here
   session_file: credentials/telegram.session
 
+jira:
+  # Atlassian Cloud URL, e.g. https://yourcompany.atlassian.net
+  # cloud_url: https://yourcompany.atlassian.net
+  # Your Atlassian account email
+  # email: you@example.com
+  # Personal API token from https://id.atlassian.com/manage/api-tokens
+  # api_token: your-api-token-here
+
+confluence:
+  # Same Atlassian account credentials as Jira (one API token covers both).
+  # cloud_url: https://yourcompany.atlassian.net
+  # email: you@example.com
+  # api_token: your-api-token-here
+
 salesforce:
   # Your Salesforce instance URL, e.g. https://yourorg.my.salesforce.com
   # instance_url: https://yourorg.my.salesforce.com
