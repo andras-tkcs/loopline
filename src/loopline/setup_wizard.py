@@ -40,7 +40,7 @@ RED      = "#f38ba8"
 YELLOW   = "#f9e2af"
 
 WIN_W = 620
-WIN_H = 520
+WIN_H = 600
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -289,15 +289,61 @@ class SetupWizard:
         self._tg_phone = tk.StringVar()
         self._tg_code = tk.StringVar()
         self._tg_phone_code_hash: str | None = None
-        self._tg_client = None  # telethon client kept alive between steps
+        self._tg_session_file: str | None = None
+        self._tg_api_id_int: int | None = None
+        self._tg_api_hash_str: str | None = None
         # Salesforce state
         self._sf_instance_url = tk.StringVar()
         self._sf_username = tk.StringVar()
         self._sf_password = tk.StringVar()
         self._sf_security_token = tk.StringVar()
 
+        self._load_existing_state()
         self._build_layout()
         self._show_page()
+
+    # ── persist / restore ─────────────────────────────────────────────────────
+
+    def _load_existing_state(self) -> None:
+        """Pre-populate state from previously saved credentials/settings."""
+        token_files = {
+            "gmail":    "token.json",
+            "drive":    "drive_token.json",
+            "calendar": "calendar_token.json",
+            "contacts": "contacts_token.json",
+            "tasks":    "tasks_token.json",
+        }
+        creds = _credentials_dir()
+        for svc, fname in token_files.items():
+            if (creds / fname).exists():
+                self._oauth_states[svc] = "ok:restored"
+
+        settings = _settings_path()
+        if settings.exists():
+            try:
+                import yaml
+                with open(settings, encoding="utf-8") as fh:
+                    cfg = yaml.safe_load(fh) or {}
+                if isinstance(cfg, dict):
+                    slack_token = cfg.get("slack", {}).get("user_token", "")
+                    if slack_token:
+                        self._slack_user_token.set(slack_token)
+                    tg = cfg.get("telegram", {})
+                    if tg.get("api_id"):
+                        self._tg_api_id.set(str(tg["api_id"]))
+                    if tg.get("api_hash"):
+                        self._tg_api_hash.set(tg["api_hash"])
+                    sf = cfg.get("salesforce", {})
+                    if sf.get("instance_url"):
+                        self._sf_instance_url.set(sf["instance_url"])
+                    if sf.get("username"):
+                        self._sf_username.set(sf["username"])
+                    if sf.get("password"):
+                        self._sf_password.set(sf["password"])
+                    if sf.get("security_token"):
+                        self._sf_security_token.set(sf["security_token"])
+            except Exception:  # noqa: BLE001
+                pass
 
     # ── layout skeleton ───────────────────────────────────────────────────────
 
@@ -532,7 +578,8 @@ class SetupWizard:
                               bg=SURFACE, fg=TEXT, insertbackground=TEXT,
                               relief="flat", font=("Courier", 12), width=52)
         user_entry.pack(anchor="w", ipady=6)
-        user_entry.insert(0, self._slack_user_token.get() or "xoxp-")
+        if not self._slack_user_token.get():
+            self._slack_user_token.set("xoxp-")
 
     def _page_telegram(self) -> None:
         self._header.config(text="Telegram (Optional)")
@@ -555,8 +602,14 @@ class SetupWizard:
         self._tg_api_hash_entry = _field("API Hash", self._tg_api_hash, show="•")
         self._tg_phone_entry = _field("Phone number (with country code, e.g. +1234567890)", self._tg_phone)
 
-        self._tg_status = tk.Label(self._body, text="", bg=BG, fg=SUBTEXT,
-                                   font=("Helvetica Neue", 12), anchor="w", wraplength=560)
+        tg_session = _credentials_dir() / "telegram.session"
+        tg_preauth = tg_session.exists()
+        self._tg_status = tk.Label(
+            self._body,
+            text="✓  Already authorized" if tg_preauth else "",
+            bg=BG, fg=GREEN if tg_preauth else SUBTEXT,
+            font=("Helvetica Neue", 12), anchor="w", wraplength=560,
+        )
         self._tg_status.pack(anchor="w", pady=(8, 0))
 
         btn_row = tk.Frame(self._body, bg=BG)
@@ -609,18 +662,21 @@ class SetupWizard:
                 from telethon import TelegramClient
                 session_file = str(_credentials_dir() / "telegram.session")
                 client = TelegramClient(session_file, api_id, api_hash)
-                asyncio.run(_send(client, phone))
+                asyncio.run(_send(client, phone, session_file, api_id, api_hash))
             except Exception as exc:
                 self.root.after(0, lambda: (
                     self._tg_status.config(text=f"Error: {exc}", fg=RED),
                     self._tg_send_btn.config(state="normal"),
                 ))
 
-        async def _send(client, phone: str) -> None:
+        async def _send(client, phone: str, session_file: str, api_id_val: int, api_hash_val: str) -> None:
             await client.connect()
             result = await client.send_code_request(phone)
+            await client.disconnect()
             self._tg_phone_code_hash = result.phone_code_hash
-            self._tg_client = client
+            self._tg_session_file = session_file
+            self._tg_api_id_int = api_id_val
+            self._tg_api_hash_str = api_hash_val
             self.root.after(0, lambda: (
                 self._tg_status.config(text="Code sent! Check your Telegram app.", fg=GREEN),
                 self._tg_code_frame.pack(anchor="w", pady=(8, 0)),
@@ -637,6 +693,10 @@ class SetupWizard:
 
         self._tg_status.config(text="Authorizing…", fg=YELLOW)
 
+        session_file = self._tg_session_file
+        api_id_val = self._tg_api_id_int
+        api_hash_val = self._tg_api_hash_str
+
         def _run() -> None:
             import asyncio
             try:
@@ -645,12 +705,13 @@ class SetupWizard:
                 self.root.after(0, lambda: self._tg_status.config(text=f"Error: {exc}", fg=RED))
 
         async def _sign_in() -> None:
-            client = self._tg_client
+            from telethon import TelegramClient
+            client = TelegramClient(session_file, api_id_val, api_hash_val)
+            await client.connect()
             await client.sign_in(phone, code, phone_code_hash=self._tg_phone_code_hash)
             me = await client.get_me()
             name = f"{me.first_name or ''} {me.last_name or ''}".strip()
             await client.disconnect()
-            self._tg_client = None
             self.root.after(0, lambda: (
                 self._tg_status.config(text=f"✓  Authorized as {name}", fg=GREEN),
                 self._tg_code_frame.pack_forget(),
