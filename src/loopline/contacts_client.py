@@ -13,6 +13,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+import httplib2
+import google_auth_httplib2
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -140,8 +142,12 @@ class ContactsClient:
     def _get_service(self):
         if self._service is None:
             creds = self._load_credentials()
+            # The People API sometimes returns responses that httplib2 fails to
+            # decompress (zlib "incorrect header check"). Requesting uncompressed
+            # responses via a custom Http avoids this.
+            http = _build_uncompressed_http(creds)
             self._service = build(
-                "people", "v1", credentials=creds, cache_discovery=False
+                "people", "v1", http=http, cache_discovery=False
             )
             logger.debug("People API service initialized")
         return self._service
@@ -343,6 +349,29 @@ class ContactsClient:
         contact = _parse_person(updated)
         logger.info("update_contact %s: %s", resource_name, contact.short_summary())
         return contact
+
+
+# ------------------------------------------------------------------ #
+# HTTP helper
+# ------------------------------------------------------------------ #
+
+def _build_uncompressed_http(creds: Credentials) -> google_auth_httplib2.AuthorizedHttp:
+    """Return an AuthorizedHttp that requests identity (uncompressed) responses.
+
+    httplib2 sends Accept-Encoding: gzip by default.  The People API occasionally
+    returns a response whose Content-Encoding header doesn't match the actual body,
+    causing a zlib "incorrect header check" error.  Requesting plain responses
+    sidesteps the issue entirely.
+    """
+
+    class _IdentityHttp(httplib2.Http):
+        def request(self, uri, method="GET", body=None, headers=None, **kw):  # type: ignore[override]
+            if headers is None:
+                headers = {}
+            headers["Accept-Encoding"] = "identity"
+            return super().request(uri, method=method, body=body, headers=headers, **kw)
+
+    return google.auth.httplib2.AuthorizedHttp(creds, http=_IdentityHttp())
 
 
 # ------------------------------------------------------------------ #
