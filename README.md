@@ -47,6 +47,9 @@ Claude ──MCP stdio──▶ loopline-bridge ──Unix socket──▶ loopl
 | **Google Calendar** | `calendar_list_calendars`, `calendar_list_events`, `calendar_get_free_busy`, `calendar_get_event_details`, `calendar_create_event`, `calendar_update_event` | OAuth2. List and free/busy are auto-approved; event details and mutations are gated. |
 | **Telegram** | `telegram_list_chats`, `telegram_get_messages`, `telegram_search_messages` | Telethon (MTProto). Read-only; all tools are auto-approved. |
 | **Salesforce** | `salesforce_list_reports`, `salesforce_get_record`, `salesforce_run_report` | Username+password auth. Listing is auto-approved; record reads and reports are gated. |
+| **Jira** | `jira_list_projects`, `jira_search_issues`, `jira_get_issue`, `jira_create_issue`, `jira_add_comment`, `jira_update_issue` | Atlassian API token. Listing and search are auto-approved; issue reads and mutations are gated. |
+| **Confluence** | `confluence_list_spaces`, `confluence_search`, `confluence_cql_search`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page` | Atlassian API token (shared with Jira). Listing and search are auto-approved; page reads and mutations are gated. |
+| **Google Tasks** | `tasks_list_task_lists`, `tasks_list_tasks`, `tasks_get_task`, `tasks_create_task`, `tasks_update_task`, `tasks_complete_task`, `tasks_uncomplete_task`, `tasks_move_task` | OAuth2. All tools are auto-approved. |
 
 ---
 
@@ -88,6 +91,63 @@ The privacy filter is a **floor**, not a ceiling — data that passes the filter
 | `user_identity` | User names, emails, real names |
 | `channel_list` | Channel names and metadata |
 | `thread_content` | Thread reply content |
+
+### Jira categories
+
+| Category | Controls |
+|----------|---------|
+| `issue_content` | Issue description, comments, and custom fields |
+| `issue_metadata` | Summary, status, assignee, reporter, priority, labels |
+| `project_list` | Project keys, names, and lead info |
+
+### Confluence categories
+
+| Category | Controls |
+|----------|---------|
+| `page_content` | Page body text and inline comments |
+| `page_metadata` | Title, author, space, last-modified date |
+| `space_list` | Space keys, names, and descriptions |
+
+### Google Calendar categories
+
+| Category | Controls |
+|----------|---------|
+| `event_details` | Full event description, attendee list, conferencing links |
+| `event_metadata` | Title, time, location, organizer, calendar name |
+| `attendees` | Attendee names and email addresses |
+| `calendar_list` | Calendar names and IDs |
+
+### Google Contacts categories
+
+| Category | Controls |
+|----------|---------|
+| `contact_details` | Phone numbers, addresses, notes, custom fields |
+| `contact_identity` | Name, email addresses, organization |
+
+### Telegram categories
+
+| Category | Controls |
+|----------|---------|
+| `message_content` | Text of messages |
+| `sender_identity` | Sender name, username, phone number |
+| `chat_list` | Chat names and IDs |
+
+### Salesforce categories
+
+| Category | Controls |
+|----------|---------|
+| `record_content` | Field values of Salesforce records |
+| `record_metadata` | Object type, record ID, owner |
+| `report_data` | Report rows and column values |
+
+### Google Tasks categories
+
+| Category | Controls |
+|----------|---------|
+| `task_content` | Task notes and details |
+| `task_metadata` | Title, due date, status, list membership |
+
+> **Note:** Telegram, Salesforce, Jira, Confluence, Google Tasks, and Google Contacts connectors do not yet apply automatic field-level redaction — all approved data is passed through as-is. Privacy control for these connectors is the human review gate.
 
 Policies are set in `config/settings.yaml` and can be toggled at runtime from the menu bar **Privacy Settings** submenu.
 
@@ -149,6 +209,20 @@ Routine, low-risk requests can be approved automatically without a UI prompt. Ru
 |------|--------------|
 | `approved_object_types` | Object type (Account, Contact, …) is in the allowlist |
 | `approved_report_ids` | Report ID is in the approved list |
+
+**Jira**
+
+| Rule | Matches when… |
+|------|--------------|
+| `approved_projects` | Issue's project key is in the allowlist |
+
+**Confluence**
+
+| Rule | Matches when… |
+|------|--------------|
+| `approved_spaces` | Page's space key is in the allowlist |
+
+> **Telegram, Google Contacts, and Google Tasks** have no configurable auto-accept rules — all their tools are unconditionally auto-approved and logged as `always_allowed`.
 
 ---
 
