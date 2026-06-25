@@ -19,7 +19,7 @@
 import os
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 SRC = str(Path("src").resolve())
 sys.path.insert(0, SRC)
@@ -38,6 +38,9 @@ datas = [
     *collect_data_files("googleapiclient"),
     # fastmcp may carry JSON schema files
     *collect_data_files("fastmcp"),
+    # fastmcp/__init__.py reads version via importlib.metadata (tries fastmcp-slim first)
+    *copy_metadata("fastmcp"),
+    *copy_metadata("fastmcp-slim"),
 ]
 
 # ── hidden imports ────────────────────────────────────────────────────────────
