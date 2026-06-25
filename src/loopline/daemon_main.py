@@ -25,19 +25,23 @@ import yaml
 
 from .paths import data_dir, is_bundled
 from .connectors.calendar import CalendarConnector
+from .connectors.confluence import ConfluenceConnector
 from .connectors.contacts import ContactsConnector
 from .connectors.drive import DriveConnector
 from .connectors.gmail import GmailConnector
+from .connectors.jira import JiraConnector
 from .connectors.salesforce import SalesforceConnector
 from .connectors.slack import SlackConnector
 from .connectors.tasks import TasksConnector
 from .connectors.telegram import TelegramConnector
 from .calendar_client import CalendarClient, CalendarClientError
+from .confluence_client import ConfluenceClient, ConfluenceClientError
 from .contacts_client import ContactsClient, ContactsClientError
 from .drive_client import DriveClient, DriveClientError
 from .floating_window import GuardFloatingWindow
 from .gmail_client import GmailClient, GmailClientError
 from .ipc_server import IPCServer
+from .jira_client import JiraClient, JiraClientError
 from .privacy_filter import DrivePrivacyFilter, PrivacyFilter, SlackPrivacyFilter
 from .salesforce_client import SalesforceClient, SalesforceClientError
 from .slack_client import SlackClient, SlackClientError
@@ -235,6 +239,34 @@ def _build_connectors(config: dict[str, Any]) -> list:
         connectors.append(connector)
     except (SalesforceClientError, FileNotFoundError) as exc:
         logger.warning("Salesforce connector disabled: %s", exc)
+
+    # Jira
+    try:
+        jira_cfg = config.get("jira", {}) or {}
+        if not jira_cfg.get("cloud_url"):
+            raise JiraClientError("jira.cloud_url not configured")
+        client = JiraClient(config=jira_cfg)
+        info = client.check_connection()
+        logger.info("Jira connector ready: %s", info)
+        connector = JiraConnector(client)
+        connector.my_email = jira_cfg.get("email", "")
+        connectors.append(connector)
+    except (JiraClientError, FileNotFoundError) as exc:
+        logger.warning("Jira connector disabled: %s", exc)
+
+    # Confluence
+    try:
+        confluence_cfg = config.get("confluence", {}) or {}
+        if not confluence_cfg.get("cloud_url"):
+            raise ConfluenceClientError("confluence.cloud_url not configured")
+        client = ConfluenceClient(config=confluence_cfg)
+        url = client.check_connection()
+        logger.info("Confluence connector ready: %s", url)
+        connector = ConfluenceConnector(client)
+        connector.my_email = confluence_cfg.get("email", "")
+        connectors.append(connector)
+    except (ConfluenceClientError, FileNotFoundError) as exc:
+        logger.warning("Confluence connector disabled: %s", exc)
 
     # Telegram
     try:
