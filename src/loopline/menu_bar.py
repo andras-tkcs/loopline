@@ -80,6 +80,21 @@ OAUTH_FLAGS: dict[str, str] = {
     "tasks":    "--tasks-oauth",
 }
 
+# All connectors Loopline supports, in display order
+ALL_CONNECTORS: list[str] = [
+    "gmail", "drive", "contacts", "calendar", "tasks",
+    "slack", "jira", "confluence", "salesforce", "telegram",
+]
+
+# Setup hint shown for connectors that require manual config (no OAuth flow)
+CONNECTOR_SETUP_HINTS: dict[str, str] = {
+    "slack":      "Add a 'slack' section to your config with user_token.",
+    "jira":       "Add a 'jira' section to your config with cloud_url, email, and api_token.",
+    "confluence": "Add a 'confluence' section to your config with cloud_url, email, and api_token.",
+    "salesforce": "Add a 'salesforce' section to your config with instance_url, username, password, and security_token.",
+    "telegram":   "Add a 'telegram' section with api_id and api_hash, then run 'loopline-app --telegram-setup'.",
+}
+
 RULE_HINTS: dict[str, str] = {
     "trusted_sender_domain": "domain1.com\ndomain2.com",
     "label_match":           "INBOX\nUNREAD",
@@ -126,7 +141,7 @@ class LooplineMenuBar(rumps.App):
         rules_parent = rumps.MenuItem("Auto-accept Rules")
         for op_key, label in OPERATION_LABELS.items():
             op_item = rumps.MenuItem(label)
-            op_rules = rules_cfg.get(op_key, [])
+            op_rules = rules_cfg.get(op_key) or []
 
             # "Add rule…" at the top
             add_item = rumps.MenuItem("  + Add rule…")
@@ -161,20 +176,34 @@ class LooplineMenuBar(rumps.App):
             rules_parent.add(op_item)
 
         connectors_parent = rumps.MenuItem("Connectors")
-        for cname in self._connectors:
+        for cname in ALL_CONNECTORS:
+            connected = cname in self._connectors
             conn_cfg = connectors_cfg.get(cname, {})
             enabled = conn_cfg.get("enabled", True)
-            check = "✓" if enabled else "○"
-            conn_item = rumps.MenuItem(f"{check} {cname}")
 
-            toggle = rumps.MenuItem("  Toggle enabled")
-            toggle.set_callback(_bind(self._toggle_connector, cname))
-            conn_item.add(toggle)
+            if connected:
+                check = "✓" if enabled else "○"
+                conn_item = rumps.MenuItem(f"{check} {cname}")
 
-            if cname in OAUTH_FLAGS:
-                oauth = rumps.MenuItem("  Run OAuth setup…")
-                oauth.set_callback(_bind(self._run_oauth, cname))
-                conn_item.add(oauth)
+                toggle = rumps.MenuItem("  Toggle enabled")
+                toggle.set_callback(_bind(self._toggle_connector, cname))
+                conn_item.add(toggle)
+
+                if cname in OAUTH_FLAGS:
+                    oauth = rumps.MenuItem("  Run OAuth setup…")
+                    oauth.set_callback(_bind(self._run_oauth, cname))
+                    conn_item.add(oauth)
+            else:
+                conn_item = rumps.MenuItem(f"  {cname}  (not connected)")
+
+                if cname in OAUTH_FLAGS:
+                    setup = rumps.MenuItem("  Run OAuth setup…")
+                    setup.set_callback(_bind(self._run_oauth, cname))
+                    conn_item.add(setup)
+                else:
+                    setup = rumps.MenuItem("  How to set up…")
+                    setup.set_callback(_bind(self._show_setup_hint, cname))
+                    conn_item.add(setup)
 
             connectors_parent.add(conn_item)
 
@@ -334,6 +363,10 @@ class LooplineMenuBar(rumps.App):
         conn["enabled"] = not conn.get("enabled", True)
         self._save_config(cfg)
         self._rebuild()
+
+    def _show_setup_hint(self, cname: str, _sender: Any = None) -> None:
+        hint = CONNECTOR_SETUP_HINTS.get(cname, f"Add a '{cname}' section to your config file.")
+        rumps.alert(f"Set up {cname}", hint + "\n\nClick 'Edit Config File…' to open your config.")
 
     def _run_oauth(self, cname: str, _sender: Any = None) -> None:
         flag = OAUTH_FLAGS.get(cname)

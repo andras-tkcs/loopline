@@ -28,12 +28,14 @@ from .auto_accept import TOOL_TO_OPERATION, ReviewContext, get_auto_accept_evalu
 logger = logging.getLogger(__name__)
 
 _ACTION_REQUIRED = (
-    "A read request is pending user approval. "
-    "Show the user the preview fields above and ask them to choose:\n"
-    "  • Accept — call loopline_confirm(request_id) to release the data\n"
-    "  • Deny   — call loopline_deny(request_id) to block the request\n"
-    "  • Show Details — call loopline_show_details(request_id) to open a "
-    "full-content popup; it returns the data if the user accepts there"
+    "A Loopline privacy gate is pending. "
+    "Present the preview fields to the user and ask them to reply with one of:\n"
+    "  accept — you will then call loopline_confirm(request_id)\n"
+    "  deny   — you will then call loopline_deny(request_id)\n"
+    "  details — you will then call loopline_show_details(request_id), "
+    "which opens a native popup with the full content on the user's device.\n"
+    "Wait for the user's reply, then call the corresponding tool immediately. "
+    "Do not proceed with the original task until one of these tools has been called."
 )
 
 
