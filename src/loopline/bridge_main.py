@@ -276,7 +276,13 @@ def _build_approval_fn(tool_name: str, ipc_method: str) -> Any:
         try:
             return await getattr(_ipc, ipc_method)(request_id)
         except IPCError as exc:
-            raise ToolError(str(exc)) from exc
+            msg = str(exc)
+            if "No pending read" in msg or "connection closed" in msg.lower():
+                raise ToolError(
+                    f"{msg}. The session may have been interrupted — "
+                    "please re-request the original read tool so a new approval can be issued."
+                ) from exc
+            raise ToolError(msg) from exc
 
     _handler.__name__ = tool_name
     _handler.__doc__ = ""
