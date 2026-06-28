@@ -225,10 +225,10 @@ def _register_approval_tools(mcp: FastMCP) -> None:
     """Register the three Loopline approval control tools."""
 
     async def loopline_confirm(request_id: str) -> Any:
-        """Confirm a pending read request and retrieve the data.
+        """Release a Loopline-gated read and return the actual data.
 
-        Call this when the user chooses Accept after seeing a pending_approval
-        preview returned by a Loopline read tool. Returns the actual data.
+        Call this immediately after the user replies "accept" to a pending_approval
+        preview. Pass the request_id from that preview. Returns the actual content.
         """
         global _ipc
         if _ipc is None:
@@ -239,10 +239,10 @@ def _register_approval_tools(mcp: FastMCP) -> None:
             raise ToolError(str(exc)) from exc
 
     async def loopline_deny(request_id: str) -> Any:
-        """Deny a pending read request.
+        """Cancel a Loopline-gated read.
 
-        Call this when the user chooses Deny after seeing a pending_approval
-        preview returned by a Loopline read tool. The request is cancelled.
+        Call this immediately after the user replies "deny" to a pending_approval
+        preview. Pass the request_id from that preview. The data is discarded.
         """
         global _ipc
         if _ipc is None:
@@ -253,12 +253,13 @@ def _register_approval_tools(mcp: FastMCP) -> None:
             raise ToolError(str(exc)) from exc
 
     async def loopline_show_details(request_id: str) -> Any:
-        """Open a full-content popup for a pending read request.
+        """Open a full-content Loopline popup for a pending read.
 
-        Call this when the user chooses Show Details after seeing a
-        pending_approval preview returned by a Loopline read tool.
-        Loopline opens a native popup with the full content; the user can
-        Accept or Deny there. Returns the data if accepted.
+        Call this immediately after the user replies "details" to a
+        pending_approval preview. Loopline opens a native macOS popup on the
+        user's device showing the complete content (e.g. the full email body).
+        The user then clicks Accept or Deny inside that popup. This call blocks
+        until they decide. Returns the data if accepted, raises an error if denied.
         """
         global _ipc
         if _ipc is None:
