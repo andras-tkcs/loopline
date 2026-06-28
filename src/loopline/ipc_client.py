@@ -33,6 +33,8 @@ class IPCClient:
         self._next_id = 0
         self._write_lock = asyncio.Lock()
         self._reader_task: asyncio.Task | None = None
+        self._connected = False
+        self._reconnect_lock: asyncio.Lock | None = None
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -40,11 +42,15 @@ class IPCClient:
 
     async def connect(self) -> None:
         """Open the connection. Must be called once inside an event loop."""
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
         self._reader, self._writer = await asyncio.open_unix_connection(self._path)
         self._reader_task = asyncio.create_task(self._read_loop())
+        self._connected = True
         logger.debug("IPC client connected to %s", self._path)
 
     async def close(self) -> None:
+        self._connected = False
         if self._reader_task:
             self._reader_task.cancel()
         if self._writer:
@@ -71,7 +77,30 @@ class IPCClient:
     # Internals
     # ------------------------------------------------------------------ #
 
+    async def _ensure_connected(self) -> None:
+        """Reconnect to the daemon if the connection has been lost."""
+        if self._connected:
+            return
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        async with self._reconnect_lock:
+            if self._connected:
+                return
+            logger.info("IPC connection lost — reconnecting to daemon")
+            if self._reader_task and not self._reader_task.done():
+                self._reader_task.cancel()
+            if self._writer:
+                try:
+                    self._writer.close()
+                except Exception:
+                    pass
+            self._reader, self._writer = await asyncio.open_unix_connection(self._path)
+            self._reader_task = asyncio.create_task(self._read_loop())
+            self._connected = True
+            logger.info("IPC reconnected to %s", self._path)
+
     async def _request(self, method: str, params: dict) -> Any:
+        await self._ensure_connected()
         req_id = str(self._next_id)
         self._next_id += 1
         loop = asyncio.get_running_loop()
@@ -80,6 +109,7 @@ class IPCClient:
 
         msg = json.dumps({"id": req_id, "method": method, "params": params}) + "\n"
         async with self._write_lock:
+            assert self._writer is not None
             self._writer.write(msg.encode())
             await self._writer.drain()
 
@@ -88,6 +118,7 @@ class IPCClient:
     async def _read_loop(self) -> None:
         try:
             while True:
+                assert self._reader is not None
                 line = await self._reader.readline()
                 if not line:
                     break
@@ -104,9 +135,12 @@ class IPCClient:
                     fut.set_exception(IPCError(msg["error"]))
                 else:
                     fut.set_result(msg.get("result"))
-        except (asyncio.CancelledError, ConnectionResetError):
+        except asyncio.CancelledError:
+            return
+        except (ConnectionResetError, OSError):
             pass
         finally:
+            self._connected = False
             # Fail all in-flight requests if the connection drops.
             for fut in self._pending.values():
                 if not fut.done():
