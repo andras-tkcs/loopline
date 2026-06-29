@@ -214,6 +214,21 @@ class TelegramLooplineClient:
         logger.info("search_messages query=%r: returned %d messages", query, len(result))
         return result
 
+    async def send_message(self, chat_id: int, text: str) -> dict:
+        """Send a text message to a chat by its numeric id."""
+        await self._ensure_connected()
+        if not text:
+            raise TelegramClientError("send_message requires non-empty text")
+        try:
+            msg = await self._client.send_message(chat_id, text)  # type: ignore[union-attr]
+        except Exception as exc:
+            raise TelegramClientError(
+                f"send_message(chat_id={chat_id}) failed: {exc}"
+            ) from exc
+        chat_name = self._chat_name_cache.get(chat_id, str(chat_id))
+        logger.info("send_message: chat_id=%d msg_id=%s", chat_id, getattr(msg, "id", "?"))
+        return {"chat_id": chat_id, "chat_name": chat_name, "msg_id": getattr(msg, "id", None), "text": text}
+
     # ------------------------------------------------------------------ #
     # Interactive authorization
     # ------------------------------------------------------------------ #
