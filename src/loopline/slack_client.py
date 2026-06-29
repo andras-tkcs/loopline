@@ -284,8 +284,11 @@ class SlackClient:
                 f"send_message({channel_id}) failed: {self._describe_error(exc)}"
             ) from exc
         ts = response.get("ts", "")
-        logger.info("send_message: channel=%s ts=%s", channel_id, ts)
-        return {"channel_id": channel_id, "ts": ts, "text": text}
+        # response["channel"] is the resolved channel ID (D... for DMs even when a
+        # user ID was passed as channel_id — needed for conversations.mark).
+        resolved_channel = response.get("channel", channel_id)
+        logger.info("send_message: channel=%s ts=%s", resolved_channel, ts)
+        return {"channel_id": resolved_channel, "ts": ts, "text": text}
 
     def mark_channel_unread_before(self, channel_id: str, ts: str) -> None:
         """Set the channel's read cursor to just before ``ts``.
@@ -424,9 +427,13 @@ class SlackClient:
 
     @staticmethod
     def _describe_error(exc: SlackApiError) -> str:
-        """Pull the Slack 'error' code out of the response for clearer logs."""
+        """Pull the Slack 'error' code and needed scope out of the response."""
         try:
-            error = exc.response.get("error")  # type: ignore[union-attr]
+            resp = exc.response  # type: ignore[union-attr]
+            error = resp.get("error")
+            needed = resp.get("needed")
         except Exception:  # noqa: BLE001 - defensive
-            error = None
+            error = needed = None
+        if error and needed:
+            return f"{error} (needed scope: {needed})"
         return f"{error or exc}"

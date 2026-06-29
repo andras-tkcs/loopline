@@ -249,11 +249,14 @@ class SlackConnector(Connector):
             args={"channel_id": channel_id, "thread_ts": thread_ts},
         )
         result = await self._fetch(self._slack.send_message, channel_id, text, thread_ts)
-        if mark_unread:
-            sent_ts = result.get("ts", "") if isinstance(result, dict) else ""
-            if sent_ts:
+        if mark_unread and isinstance(result, dict):
+            sent_ts = result.get("ts", "")
+            # Use the channel ID from the response: chat.postMessage accepts user IDs
+            # but conversations.mark requires the resolved DM channel ID (D...).
+            resolved_channel = result.get("channel_id", channel_id)
+            if sent_ts and resolved_channel:
                 await self._fetch(
-                    self._slack.mark_channel_unread_before, channel_id, sent_ts
+                    self._slack.mark_channel_unread_before, resolved_channel, sent_ts
                 )
         return result
 
