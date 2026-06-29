@@ -319,7 +319,9 @@ Authorize each Google service (first-time setup):
 ```bash
 loopline-app --gmail-oauth
 loopline-app --drive-oauth
+loopline-app --calendar-oauth
 loopline-app --contacts-oauth
+loopline-app --tasks-oauth
 loopline-app --telegram-setup   # optional
 ```
 
@@ -370,7 +372,7 @@ See [`config/settings.yaml.example`](src/loopline/resources/settings.yaml.exampl
 
 - The bridge is stateless and disposable — Claude can kill and restart it at any time without losing any state. All state (credentials, tokens, filters, queue) lives in the daemon.
 - IPC between the bridge and the daemon uses a newline-delimited JSON protocol over a Unix domain socket (`~/.loopline/loopline.sock`).
-- The daemon uses two threads: the main thread runs the review UI (a hard macOS requirement for native windows) and an IPC thread runs the asyncio event loop serving the bridge socket.
+- The daemon uses two threads: the main thread runs the rumps menu bar app (a hard macOS requirement for AppKit) and an IPC thread runs the asyncio event loop serving the bridge socket. Approval popups are shown via `osascript` subprocesses and can be called from any thread.
 - Read tools carry `readOnlyHint = true` in their MCP annotations; write tools that modify external state carry `destructiveHint = true`.
 
 ---
