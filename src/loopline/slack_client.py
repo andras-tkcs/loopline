@@ -13,7 +13,7 @@ Required user token scopes:
   - ``users:read`` / ``users:read.email``
   - ``search:read``
   - ``chat:write``
-  - ``mark`` (required for mark_unread / conversations.mark; only available on classic Slack apps)
+  - ``im:write`` / ``channels:write`` / ``groups:write`` / ``mpim:write`` (for mark_unread / conversations.mark; the needed scope depends on channel type)
 """
 
 from __future__ import annotations
@@ -291,9 +291,9 @@ class SlackClient:
         """Set the channel's read cursor to just before ``ts``.
 
         Any message with a timestamp >= ``ts`` will appear as unread.
-        Requires the ``mark`` scope, which is only available on classic Slack
-        apps (created before granular permissions). Modern apps will get a
-        ``missing_scope`` error — this is a Slack API limitation, not a bug.
+        Uses conversations.mark. Required scope depends on channel type:
+        ``im:write`` for DMs, ``channels:write`` for public channels,
+        ``groups:write`` for private channels, ``mpim:write`` for group DMs.
         """
         if not channel_id or not ts:
             raise SlackClientError(
@@ -303,16 +303,9 @@ class SlackClient:
             mark_ts = f"{float(ts) - 0.000001:.6f}"
             self._client.conversations_mark(channel=channel_id, ts=mark_ts)
         except SlackApiError as exc:
-            error_code = self._describe_error(exc)
-            if "missing_scope" in str(error_code) or "mark" in str(error_code):
-                raise SlackClientError(
-                    "mark_unread is not supported by modern Slack apps with granular "
-                    "permissions. The 'mark' scope required by conversations.mark is "
-                    "only available to classic Slack apps. The message was sent "
-                    "successfully but could not be marked as unread."
-                ) from exc
             raise SlackClientError(
-                f"mark_channel_unread_before({channel_id}) failed: {error_code}"
+                f"mark_channel_unread_before({channel_id}) failed: "
+                f"{self._describe_error(exc)}"
             ) from exc
         logger.info("mark_channel_unread_before: channel=%s before=%s", channel_id, ts)
 

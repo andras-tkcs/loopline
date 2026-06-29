@@ -33,6 +33,7 @@ Loopline uses a **user token** (`xoxp-…`) to access Slack. This means Claude s
 | `users:read.email` | Resolve user email addresses |
 | `search:read` | Search messages across the workspace |
 | `chat:write` | Send messages as you |
+| `im:write` | Mark a DM as unread (`mark_unread` option on `slack_send_message`) |
 
 > **Do not add Bot Token Scopes.** Only the User Token Scopes section is needed.
 
@@ -75,6 +76,3 @@ The token only sees channels you are a member of. Join the channel in Slack firs
 
 **`invalid_auth` errors**
 The token has been revoked. Reinstall the app and update the token in Loopline.
-
-**`mark_unread` doesn't work**
-The `conversations.mark` Slack API endpoint requires a `mark` scope that is only available on classic Slack apps (created before Slack introduced granular permissions). Modern apps cannot obtain this scope. When `mark_unread=true` is set, Loopline will still send the message successfully and log a warning — marking unread is silently skipped rather than failing the whole call.

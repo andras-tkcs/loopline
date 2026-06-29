@@ -83,9 +83,8 @@ class SlackConnector(Connector):
                 description=(
                     "Send a message to a Slack channel or DM. Requires user approval. "
                     "Set mark_unread=true to leave the message unread after sending "
-                    "(useful when sending a DM to yourself as a note; only works with "
-                    "classic Slack apps that have the 'mark' scope — modern apps will "
-                    "send successfully but mark_unread will be silently skipped)."
+                    "(useful when sending a DM to yourself as a note; requires the "
+                    "im:write scope on the user token for DMs)."
                 ),
                 params=[
                     ToolParam("channel_id", "str"),
@@ -253,14 +252,9 @@ class SlackConnector(Connector):
         if mark_unread:
             sent_ts = result.get("ts", "") if isinstance(result, dict) else ""
             if sent_ts:
-                try:
-                    await self._fetch(
-                        self._slack.mark_channel_unread_before, channel_id, sent_ts
-                    )
-                except RuntimeError as exc:
-                    logger.warning("mark_unread skipped: %s", exc)
-                    if isinstance(result, dict):
-                        result = {**result, "mark_unread_error": str(exc)}
+                await self._fetch(
+                    self._slack.mark_channel_unread_before, channel_id, sent_ts
+                )
         return result
 
     # ------------------------------------------------------------------ #
