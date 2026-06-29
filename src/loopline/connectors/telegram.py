@@ -56,6 +56,14 @@ class TelegramConnector(Connector):
                 ],
                 read_only=True,
             ),
+            ToolSpec(
+                name="telegram_send_message",
+                description="Send a message to a Telegram chat or user by chat id. Requires user approval.",
+                params=[
+                    ToolParam("chat_id", "int"),
+                    ToolParam("text", "str"),
+                ],
+            ),
         ]
 
     async def call(self, tool: str, args: dict[str, Any]) -> Any:
@@ -65,6 +73,8 @@ class TelegramConnector(Connector):
             return await self._get_messages(**args)
         if tool == "telegram_search_messages":
             return await self._search_messages(**args)
+        if tool == "telegram_send_message":
+            return await self._send_message(**args)
         raise ValueError(f"Unknown Telegram tool: {tool!r}")
 
     # ------------------------------------------------------------------ #
@@ -160,6 +170,30 @@ class TelegramConnector(Connector):
             details_text=f"Search: {query}\n\n" + "\n".join(lines),
             args={"query": query},
         )
+
+    # ------------------------------------------------------------------ #
+    # Popup gate (writes)
+    # ------------------------------------------------------------------ #
+
+    async def _send_message(self, chat_id: int, text: str) -> Any:
+        chat_name = str(chat_id)
+        details = f"Chat: {chat_name}\n\nMessage:\n{text}"
+        await gated_call(
+            connector=self.name,
+            tool="telegram_send_message",
+            tool_name="Send Telegram Message",
+            summary=f"To {chat_name}: {text[:80]}{'…' if len(text) > 80 else ''}",
+            sender=chat_name,
+            raw_data={"chat_id": chat_id, "text": text},
+            filtered_data=None,
+            gate="popup",
+            details_text=details,
+            args={"chat_id": chat_id},
+        )
+        try:
+            return await self._telegram.send_message(chat_id, text)
+        except TelegramClientError as exc:
+            raise RuntimeError(str(exc)) from exc
 
     # ------------------------------------------------------------------ #
     # Helpers
