@@ -239,34 +239,41 @@ class DriveConnector(Connector):
         self, file_id: str, destination_dir: str = ""
     ) -> Any:
         import os
+        result = await self._fetch(self._drive.download_file, file_id, destination_dir)
+        name = result.get("name", file_id)
+        path = result.get("path", "")
+        size_bytes = result.get("size_bytes", 0)
+
         drive_file = await self._fetch(self._drive.get_file_metadata, file_id)
-        name = getattr(drive_file, "name", file_id)
         owners = getattr(drive_file, "owners", [])
-        size = getattr(drive_file, "size", 0)
         modified = getattr(drive_file, "modified_time", "")
-        dest = os.path.expanduser(destination_dir.strip() or "~/Downloads")
+
+        preview = {
+            "File": name,
+            "Owner": ", ".join(owners) if owners else "(unknown)",
+            "Size": f"{size_bytes:,} bytes",
+            "Saved to": path,
+        }
         details = (
             f"File: {name}\nOwner: {', '.join(owners)}\n"
-            f"Size: {size:,} bytes\nModified: {modified}\n"
-            f"Save to: {dest}"
+            f"Size: {size_bytes:,} bytes\nModified: {modified}\n"
+            f"Saved to: {path}"
         )
-        # Approve first (popup blocks), then download — avoids writing a 40MB
-        # file to disk before the user has had a chance to deny the request.
-        await gated_call(
+        return await gated_call(
             connector=self.name,
             tool="drive_download_file",
             tool_name="Download Drive File",
-            summary=f"Download \"{name}\" to {dest}",
+            summary=f"Download \"{name}\" to {os.path.dirname(path)}",
             sender=", ".join(owners) or "(unknown)",
-            raw_data={"file": drive_file, "destination_dir": dest},
-            filtered_data=None,
-            gate="popup",
+            raw_data={"path": path, "name": name, "size_bytes": size_bytes},
+            filtered_data=result,
+            gate="review",
+            preview=preview,
             details_text=details,
             my_email=self.my_email,
             session_created_ids=self.session_created_ids,
             args={"file_id": file_id, "destination_dir": destination_dir},
         )
-        return await self._fetch(self._drive.download_file, file_id, destination_dir)
 
     # ------------------------------------------------------------------ #
     # Popup gate (writes)
