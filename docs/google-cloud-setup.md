@@ -21,6 +21,7 @@ Open **APIs & Services → Library** and enable each of the following APIs one b
 |----------|--------------------|---------| 
 | Gmail API | `Gmail API` | Gmail connector |
 | Google Drive API | `Google Drive API` | Drive connector |
+| Google Docs API | `Google Docs API` | Drive connector (`drive_write_doc_content`) |
 | Google People API | `People API` | Contacts connector |
 | Google Calendar API | `Google Calendar API` | Calendar connector |
 | Google Tasks API | `Tasks API` | Google Tasks connector |

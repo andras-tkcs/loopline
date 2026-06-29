@@ -13,7 +13,7 @@ Required user token scopes:
   - ``users:read`` / ``users:read.email``
   - ``search:read``
   - ``chat:write``
-  - ``im:write`` (required for mark_unread on DMs / conversations.mark)
+  - ``mark`` (required for mark_unread / conversations.mark; only available on classic Slack apps)
 """
 
 from __future__ import annotations
@@ -291,7 +291,9 @@ class SlackClient:
         """Set the channel's read cursor to just before ``ts``.
 
         Any message with a timestamp >= ``ts`` will appear as unread.
-        Requires the ``mark`` scope on the user token.
+        Requires the ``mark`` scope, which is only available on classic Slack
+        apps (created before granular permissions). Modern apps will get a
+        ``missing_scope`` error — this is a Slack API limitation, not a bug.
         """
         if not channel_id or not ts:
             raise SlackClientError(
@@ -301,9 +303,16 @@ class SlackClient:
             mark_ts = f"{float(ts) - 0.000001:.6f}"
             self._client.conversations_mark(channel=channel_id, ts=mark_ts)
         except SlackApiError as exc:
+            error_code = self._describe_error(exc)
+            if "missing_scope" in str(error_code) or "mark" in str(error_code):
+                raise SlackClientError(
+                    "mark_unread is not supported by modern Slack apps with granular "
+                    "permissions. The 'mark' scope required by conversations.mark is "
+                    "only available to classic Slack apps. The message was sent "
+                    "successfully but could not be marked as unread."
+                ) from exc
             raise SlackClientError(
-                f"mark_channel_unread_before({channel_id}) failed: "
-                f"{self._describe_error(exc)}"
+                f"mark_channel_unread_before({channel_id}) failed: {error_code}"
             ) from exc
         logger.info("mark_channel_unread_before: channel=%s before=%s", channel_id, ts)
 
