@@ -80,11 +80,17 @@ class SlackConnector(Connector):
             ),
             ToolSpec(
                 name="slack_send_message",
-                description="Send a message to a Slack channel or DM. Requires user approval.",
+                description=(
+                    "Send a message to a Slack channel or DM. Requires user approval. "
+                    "Set mark_unread=true to leave the message unread after sending "
+                    "(useful when sending a DM to yourself as a note; requires the "
+                    "'mark' scope on the user token)."
+                ),
                 params=[
                     ToolParam("channel_id", "str"),
                     ToolParam("text", "str"),
                     ToolParam("thread_ts", "str", required=False, default=""),
+                    ToolParam("mark_unread", "bool", required=False, default=False),
                 ],
             ),
         ]
@@ -219,9 +225,16 @@ class SlackConnector(Connector):
     # Popup gate (writes)
     # ------------------------------------------------------------------ #
 
-    async def _send_message(self, channel_id: str, text: str, thread_ts: str = "") -> Any:
+    async def _send_message(
+        self,
+        channel_id: str,
+        text: str,
+        thread_ts: str = "",
+        mark_unread: bool = False,
+    ) -> Any:
         thread_note = f"\nIn thread: {thread_ts}" if thread_ts else ""
-        details = f"Channel: {channel_id}{thread_note}\n\nMessage:\n{text}"
+        unread_note = "\n(Message will be marked unread after sending)" if mark_unread else ""
+        details = f"Channel: {channel_id}{thread_note}{unread_note}\n\nMessage:\n{text}"
         await gated_call(
             connector=self.name,
             tool="slack_send_message",
@@ -235,7 +248,14 @@ class SlackConnector(Connector):
             my_email=self.my_email,
             args={"channel_id": channel_id, "thread_ts": thread_ts},
         )
-        return await self._fetch(self._slack.send_message, channel_id, text, thread_ts)
+        result = await self._fetch(self._slack.send_message, channel_id, text, thread_ts)
+        if mark_unread:
+            sent_ts = result.get("ts", "") if isinstance(result, dict) else ""
+            if sent_ts:
+                await self._fetch(
+                    self._slack.mark_channel_unread_before, channel_id, sent_ts
+                )
+        return result
 
     # ------------------------------------------------------------------ #
     # Helpers

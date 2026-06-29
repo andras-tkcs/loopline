@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re as _re
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
@@ -48,6 +49,157 @@ _FILE_FIELDS = (
     "id, name, mimeType, size, createdTime, modifiedTime, "
     "owners(emailAddress), shared, webViewLink, parents, driveId"
 )
+
+
+# ------------------------------------------------------------------ #
+# Markdown → Google Docs API helpers
+# ------------------------------------------------------------------ #
+
+_HEADING_PREFIXES = [
+    ("#### ", "HEADING_4"),
+    ("### ", "HEADING_3"),
+    ("## ", "HEADING_2"),
+    ("# ", "HEADING_1"),
+]
+
+_INLINE_RE = _re.compile(
+    r"\*\*\*(.+?)\*\*\*"         # bold + italic
+    r"|\*\*(.+?)\*\*"            # bold
+    r"|\*(.+?)\*"                # italic
+    r"|`(.+?)`"                  # code (no extra style, just plain text)
+    r"|\[([^\]]+)\]\(([^)]+)\)"  # link [text](url)
+)
+
+
+def _parse_inline_runs(
+    text: str,
+) -> list[tuple[str, bool, bool, str]]:
+    """Return a list of (text, bold, italic, url) from an inline Markdown string."""
+    runs: list[tuple[str, bool, bool, str]] = []
+    last = 0
+    for m in _INLINE_RE.finditer(text):
+        if m.start() > last:
+            runs.append((text[last : m.start()], False, False, ""))
+        if m.group(1):  # bold+italic
+            runs.append((m.group(1), True, True, ""))
+        elif m.group(2):  # bold
+            runs.append((m.group(2), True, False, ""))
+        elif m.group(3):  # italic
+            runs.append((m.group(3), False, True, ""))
+        elif m.group(4):  # code → plain
+            runs.append((m.group(4), False, False, ""))
+        elif m.group(5):  # link
+            runs.append((m.group(5), False, False, m.group(6)))
+        last = m.end()
+    if last < len(text):
+        runs.append((text[last:], False, False, ""))
+    return runs or [("", False, False, "")]
+
+
+def _markdown_to_docs_requests(markdown: str) -> list[dict]:
+    """Convert simple Markdown to a list of Google Docs batchUpdate requests.
+
+    Text is inserted in a single ``insertText`` call at index 1; subsequent
+    requests apply paragraph and inline styles by character range.
+    """
+    lines = markdown.rstrip("\n").split("\n")
+
+    # Parse each line into (inline-runs, paragraph-style, list-bullet-preset)
+    parsed: list[tuple[list, str, str]] = []
+    for line in lines:
+        para_style = "NORMAL_TEXT"
+        list_preset = ""
+        for prefix, style in _HEADING_PREFIXES:
+            if line.startswith(prefix):
+                line = line[len(prefix):]
+                para_style = style
+                break
+        else:
+            if _re.match(r"^[-*+] ", line):
+                line = line[2:]
+                list_preset = "BULLET_DISC_CIRCLE_SQUARE"
+            elif _re.match(r"^\d+\. ", line):
+                line = _re.sub(r"^\d+\. ", "", line)
+                list_preset = "NUMBERED_DECIMAL_ALPHA_ROMAN"
+        parsed.append((_parse_inline_runs(line), para_style, list_preset))
+
+    # Build full plain text and record per-line doc positions (1-based)
+    full_text = ""
+    line_spans: list[tuple[int, int, str, list, str]] = []
+    for runs, para_style, list_preset in parsed:
+        line_start = len(full_text) + 1
+        for run_text, _, _, _ in runs:
+            full_text += run_text
+        full_text += "\n"
+        line_end = len(full_text) + 1
+        line_spans.append((line_start, line_end, para_style, runs, list_preset))
+
+    if not full_text.strip("\n"):
+        return []
+
+    requests: list[dict] = [
+        {"insertText": {"location": {"index": 1}, "text": full_text}}
+    ]
+
+    for line_start, line_end, para_style, runs, list_preset in line_spans:
+        if para_style != "NORMAL_TEXT":
+            requests.append(
+                {
+                    "updateParagraphStyle": {
+                        "range": {
+                            "startIndex": line_start,
+                            "endIndex": line_end,
+                        },
+                        "paragraphStyle": {"namedStyleType": para_style},
+                        "fields": "namedStyleType",
+                    }
+                }
+            )
+        if list_preset:
+            requests.append(
+                {
+                    "createParagraphBullets": {
+                        "range": {
+                            "startIndex": line_start,
+                            "endIndex": line_end,
+                        },
+                        "bulletPreset": list_preset,
+                    }
+                }
+            )
+        # Inline styles
+        pos = line_start
+        for run_text, bold, italic, url in runs:
+            if not run_text:
+                continue
+            run_end = pos + len(run_text)
+            text_style: dict = {}
+            fields: list[str] = []
+            if bold:
+                text_style["bold"] = True
+                fields.append("bold")
+            if italic:
+                text_style["italic"] = True
+                fields.append("italic")
+            if url:
+                text_style["link"] = {"url": url}
+                fields.append("link")
+            if fields:
+                requests.append(
+                    {
+                        "updateTextStyle": {
+                            "range": {
+                                "startIndex": pos,
+                                "endIndex": run_end,
+                            },
+                            "textStyle": text_style,
+                            "fields": ",".join(fields),
+                        }
+                    }
+                )
+            pos = run_end
+
+    return requests
 
 
 class DriveClientError(Exception):
@@ -438,6 +590,60 @@ class DriveClient:
             raise DriveClientError(f"write_file_content({file_id}) failed: {exc}") from exc
         logger.info("write_file_content: file_id=%s", file_id)
         return {"file_id": result.get("id", file_id), "modified_time": result.get("modifiedTime", "")}
+
+    def write_doc_rich_content(self, file_id: str, markdown: str) -> dict:
+        """Write Markdown to a Google Doc with rich formatting via the Docs API.
+
+        Supports: headings (# / ## / ### / ####), **bold**, *italic*,
+        ***bold-italic***, [link](url), unordered lists (- item),
+        numbered lists (1. item), and plain paragraphs.
+        Clears existing document content before writing.
+        Requires the ``drive`` or ``documents`` OAuth scope (already granted).
+        """
+        if not file_id:
+            raise DriveClientError(
+                "write_doc_rich_content requires a non-empty file_id"
+            )
+        creds = self._load_credentials()
+        docs_service = build(
+            "docs", "v1", credentials=creds, cache_discovery=False
+        )
+        try:
+            doc = docs_service.documents().get(documentId=file_id).execute()
+        except HttpError as exc:
+            raise DriveClientError(
+                f"write_doc_rich_content get({file_id}) failed: {exc}"
+            ) from exc
+
+        # Find end index so we can delete existing content
+        end_index = 1
+        for element in doc.get("body", {}).get("content", []):
+            if "endIndex" in element:
+                end_index = element["endIndex"]
+
+        requests: list[dict] = []
+        if end_index > 2:
+            requests.append(
+                {
+                    "deleteContentRange": {
+                        "range": {"startIndex": 1, "endIndex": end_index - 1}
+                    }
+                }
+            )
+        requests.extend(_markdown_to_docs_requests(markdown))
+
+        if requests:
+            try:
+                docs_service.documents().batchUpdate(
+                    documentId=file_id, body={"requests": requests}
+                ).execute()
+            except HttpError as exc:
+                raise DriveClientError(
+                    f"write_doc_rich_content batchUpdate({file_id}) failed: {exc}"
+                ) from exc
+
+        logger.info("write_doc_rich_content: file_id=%s", file_id)
+        return {"file_id": file_id}
 
     def move_file(self, file_id: str, destination_folder_id: str) -> dict:
         """Move a file to a different folder."""

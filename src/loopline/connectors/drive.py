@@ -110,6 +110,21 @@ class DriveConnector(Connector):
                 read_only=True,
             ),
             ToolSpec(
+                name="drive_write_doc_content",
+                description=(
+                    "Write Markdown content to a Google Doc with rich formatting "
+                    "(headings, bold, italic, links, bullet and numbered lists). "
+                    "Clears the existing document content before writing. "
+                    "Use this instead of drive_write_file_content when the target "
+                    "is a Google Doc and you want formatted output. "
+                    "Requires user approval."
+                ),
+                params=[
+                    ToolParam("file_id", "str"),
+                    ToolParam("markdown", "str"),
+                ],
+            ),
+            ToolSpec(
                 name="drive_download_file",
                 description=(
                     "Download a Drive file to a local directory and return the saved "
@@ -144,6 +159,8 @@ class DriveConnector(Connector):
             return await self._create_blank_file(**args)
         if tool == "drive_write_file_content":
             return await self._write_file_content(**args)
+        if tool == "drive_write_doc_content":
+            return await self._write_doc_content(**args)
         if tool == "drive_move_file":
             return await self._move_file(**args)
         if tool == "drive_add_comment":
@@ -278,6 +295,28 @@ class DriveConnector(Connector):
     # ------------------------------------------------------------------ #
     # Popup gate (writes)
     # ------------------------------------------------------------------ #
+
+    async def _write_doc_content(self, file_id: str, markdown: str) -> Any:
+        drive_file = await self._fetch(self._drive.get_file_metadata, file_id)
+        name = getattr(drive_file, "name", file_id)
+        owners = getattr(drive_file, "owners", [])
+        preview_text = markdown[:500] + ("…" if len(markdown) > 500 else "")
+        details = f"File: {name}\nOwner: {', '.join(owners)}\n\nMarkdown content:\n{preview_text}"
+        await gated_call(
+            connector=self.name,
+            tool="drive_write_doc_content",
+            tool_name="Write Google Doc",
+            summary=f"Write rich content to \"{name}\"",
+            sender=", ".join(owners) or "(unknown)",
+            raw_data={"file": drive_file, "markdown_preview": markdown[:200]},
+            filtered_data=None,
+            gate="popup",
+            details_text=details,
+            my_email=self.my_email,
+            session_created_ids=self.session_created_ids,
+            args={"file_id": file_id},
+        )
+        return await self._fetch(self._drive.write_doc_rich_content, file_id, markdown)
 
     async def _write_file_content(self, file_id: str, content: str) -> Any:
         drive_file = await self._fetch(self._drive.get_file_metadata, file_id)

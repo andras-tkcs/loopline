@@ -13,6 +13,7 @@ Required user token scopes:
   - ``users:read`` / ``users:read.email``
   - ``search:read``
   - ``chat:write``
+  - ``mark`` (required for mark_unread / conversations.mark)
 """
 
 from __future__ import annotations
@@ -285,6 +286,26 @@ class SlackClient:
         ts = response.get("ts", "")
         logger.info("send_message: channel=%s ts=%s", channel_id, ts)
         return {"channel_id": channel_id, "ts": ts, "text": text}
+
+    def mark_channel_unread_before(self, channel_id: str, ts: str) -> None:
+        """Set the channel's read cursor to just before ``ts``.
+
+        Any message with a timestamp >= ``ts`` will appear as unread.
+        Requires the ``mark`` scope on the user token.
+        """
+        if not channel_id or not ts:
+            raise SlackClientError(
+                "mark_channel_unread_before requires channel_id and ts"
+            )
+        try:
+            mark_ts = f"{float(ts) - 0.000001:.6f}"
+            self._client.conversations_mark(channel=channel_id, ts=mark_ts)
+        except SlackApiError as exc:
+            raise SlackClientError(
+                f"mark_channel_unread_before({channel_id}) failed: "
+                f"{self._describe_error(exc)}"
+            ) from exc
+        logger.info("mark_channel_unread_before: channel=%s before=%s", channel_id, ts)
 
     def get_user_info(self, user_id: str) -> SlackUser:
         """Resolve a single user's identity via ``users.info`` (cached)."""

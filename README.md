@@ -88,13 +88,14 @@ Claude already describes the action it is about to take in the chat. When the ga
 | `drive_create_blank_file` | write | auto | — | — |
 | `drive_get_file_content` | read | review | file name, owner, size, modified date | First ~500 chars of content |
 | `drive_download_file` | read | popup | — | File name, owner, size, save path |
-| `drive_write_file_content` | write | popup | — | File name, owner, new content |
+| `drive_write_file_content` | write | popup | — | File name, owner, new content (plain text) |
+| `drive_write_doc_content` | write | popup | — | File name, owner, Markdown preview (headings, bold, italic, links, lists rendered as rich formatting in the Google Doc) |
 | `drive_move_file` | write | popup | — | File name, from folder → to folder |
 | `drive_add_comment` | write | popup | — | File name, full comment text |
 
 ### Slack
 
-**Auth:** User token (`xoxp-`). Sees exactly what you see — no bot to invite.
+**Auth:** User token (`xoxp-`). Sees exactly what you see — no bot to invite. Required scopes: `channels:read`, `groups:read`, `im:read`, `mpim:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, `users:read.email`, `search:read`, `chat:write`, `mark` (the last one is needed for `mark_unread`).
 
 | Tool | Dir | Gate | Cowork preview | Details popup |
 |------|-----|------|----------------|---------------|
@@ -102,7 +103,7 @@ Claude already describes the action it is about to take in the chat. When the ga
 | `slack_get_channel_history` | read | review | channel name, message count, first message (80 chars) | All messages |
 | `slack_get_thread_replies` | read | review | channel name, thread starter (80 chars), reply count | All replies |
 | `slack_search_messages` | read | review | query, result count | All results |
-| `slack_send_message` | write | popup | — | Channel name, full message text |
+| `slack_send_message` | write | popup | — | Channel name, full message text (optional `mark_unread=true` leaves the message unread after sending; requires `mark` scope) |
 
 ### Google Calendar
 
