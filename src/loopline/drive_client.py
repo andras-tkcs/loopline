@@ -42,9 +42,10 @@ _GOOGLE_DOC_EXPORTS = {
 }
 
 # Metadata fields requested from the Drive API for a single file.
+# driveId is populated for files that live inside a Shared Drive.
 _FILE_FIELDS = (
     "id, name, mimeType, size, createdTime, modifiedTime, "
-    "owners(emailAddress), shared, webViewLink, parents"
+    "owners(emailAddress), shared, webViewLink, parents, driveId"
 )
 
 
@@ -66,6 +67,7 @@ class DriveFile:
     shared: bool = False
     web_view_link: str = ""
     parent_ids: list[str] = field(default_factory=list)
+    drive_id: str = ""  # non-empty when the file lives in a Shared Drive
 
     def short_summary(self) -> str:
         """Human-readable one-liner for the review UI / logs."""
@@ -212,6 +214,8 @@ class DriveClient:
                     q=query or None,
                     pageSize=max_results,
                     fields=f"files({_FILE_FIELDS})",
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
                 )
                 .execute()
             )
@@ -230,7 +234,7 @@ class DriveClient:
         try:
             raw = (
                 service.files()
-                .get(fileId=file_id, fields=_FILE_FIELDS)
+                .get(fileId=file_id, fields=_FILE_FIELDS, supportsAllDrives=True)
                 .execute()
             )
         except HttpError as exc:
@@ -266,7 +270,9 @@ class DriveClient:
                     fileId=file_id, mimeType=export_mime
                 )
             else:
-                request = service.files().get_media(fileId=file_id)
+                request = service.files().get_media(
+                    fileId=file_id, supportsAllDrives=True
+                )
             data = self._download(request, max_bytes)
         except HttpError as exc:
             raise DriveClientError(
@@ -309,6 +315,8 @@ class DriveClient:
                     q=query,
                     pageSize=max_results,
                     fields=f"files({_FILE_FIELDS})",
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
                 )
                 .execute()
             )
@@ -333,7 +341,7 @@ class DriveClient:
         try:
             result = (
                 service.files()
-                .create(body=body, fields=_FILE_FIELDS)
+                .create(body=body, fields=_FILE_FIELDS, supportsAllDrives=True)
                 .execute()
             )
         except HttpError as exc:
@@ -355,7 +363,12 @@ class DriveClient:
         try:
             result = (
                 service.files()
-                .update(fileId=file_id, media_body=media, fields="id,name,modifiedTime")
+                .update(
+                    fileId=file_id,
+                    media_body=media,
+                    fields="id,name,modifiedTime",
+                    supportsAllDrives=True,
+                )
                 .execute()
             )
         except HttpError as exc:
@@ -370,7 +383,9 @@ class DriveClient:
         service = self._get_service()
         # Get current parents
         try:
-            file_meta = service.files().get(fileId=file_id, fields="parents").execute()
+            file_meta = service.files().get(
+                fileId=file_id, fields="parents", supportsAllDrives=True
+            ).execute()
         except HttpError as exc:
             raise DriveClientError(f"move_file get_parents({file_id}) failed: {exc}") from exc
         current_parents = ",".join(file_meta.get("parents", []))
@@ -382,6 +397,7 @@ class DriveClient:
                     addParents=destination_folder_id,
                     removeParents=current_parents,
                     fields="id,parents",
+                    supportsAllDrives=True,
                 )
                 .execute()
             )
@@ -405,6 +421,22 @@ class DriveClient:
             raise DriveClientError(f"add_comment({file_id}) failed: {exc}") from exc
         logger.info("add_comment: file_id=%s comment_id=%s", file_id, result.get("id"))
         return {"file_id": file_id, "comment_id": result.get("id", ""), "content": comment}
+
+    def list_shared_drives(self, max_results: int = 50) -> list[dict]:
+        """Return a list of Shared Drives the authorized user can access."""
+        max_results = self._clamp_max_results(max_results)
+        service = self._get_service()
+        try:
+            response = (
+                service.drives()
+                .list(pageSize=max_results, fields="drives(id,name,kind)")
+                .execute()
+            )
+        except HttpError as exc:
+            raise DriveClientError(f"list_shared_drives failed: {exc}") from exc
+        drives = response.get("drives", [])
+        logger.info("list_shared_drives returned %d drives", len(drives))
+        return [{"id": d.get("id", ""), "name": d.get("name", "")} for d in drives]
 
     # ------------------------------------------------------------------ #
     # Parsing helpers
@@ -456,4 +488,5 @@ class DriveClient:
             shared=bool(raw.get("shared", False)),
             web_view_link=raw.get("webViewLink", ""),
             parent_ids=list(raw.get("parents", []) or []),
+            drive_id=raw.get("driveId", ""),
         )

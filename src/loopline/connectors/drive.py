@@ -98,6 +98,17 @@ class DriveConnector(Connector):
                     ToolParam("comment", "str"),
                 ],
             ),
+            ToolSpec(
+                name="drive_list_shared_drives",
+                description=(
+                    "List all Google Workspace Shared Drives the user can access "
+                    "(returns id and name for each). Auto-approved."
+                ),
+                params=[
+                    ToolParam("max_results", "int", required=False, default=50),
+                ],
+                read_only=True,
+            ),
         ]
 
     async def call(self, tool: str, args: dict[str, Any]) -> Any:
@@ -117,6 +128,8 @@ class DriveConnector(Connector):
             return await self._move_file(**args)
         if tool == "drive_add_comment":
             return await self._add_comment(**args)
+        if tool == "drive_list_shared_drives":
+            return await self._list_shared_drives(**args)
         raise ValueError(f"Unknown Drive tool: {tool!r}")
 
     # ------------------------------------------------------------------ #
@@ -144,6 +157,13 @@ class DriveConnector(Connector):
         self._auto_audit("drive_list_folder", "List Drive Folder",
                          f"List folder: {folder_id}", f"{len(files)} item(s)", t0)
         return files
+
+    async def _list_shared_drives(self, max_results: int = 50) -> Any:
+        t0 = time.time()
+        drives = await self._fetch(self._drive.list_shared_drives, max_results)
+        self._auto_audit("drive_list_shared_drives", "List Shared Drives",
+                         "List Shared Drives", f"{len(drives)} drive(s)", t0)
+        return drives
 
     async def _create_blank_file(
         self, name: str, mime_type: str, parent_folder_id: str = ""
